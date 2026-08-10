@@ -253,6 +253,25 @@
     font-weight:700;
     letter-spacing:0.04em;
   }
+  .export-btn{
+    width:100%;
+    margin-top: 14px;
+    padding: 12px 10px;
+    background: var(--white);
+    color: var(--ink);
+    border: 1.5px solid var(--ink);
+    font-family:inherit;
+    font-size: 12px;
+    font-weight:700;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+  }
+  .export-btn:active{ background: var(--ink); color: var(--white); }
   .foot-msg{
     text-align:center;
     font-size:10px;
@@ -350,6 +369,10 @@
       <span>Totale articoli</span>
       <span id="totalQty">0</span>
     </div>
+
+    <button class="export-btn" id="exportBtn" style="display:none;">
+      <span>⇪</span><span>Esporta / Invia lista</span>
+    </button>
   </div>
 
   <div class="foot-msg">DATI SALVATI SU QUESTO DISPOSITIVO · PRODOTTI VIA OPENFOODFACTS</div>
@@ -416,6 +439,7 @@ const statusLine = document.getElementById('statusLine');
 const scanToggle = document.getElementById('scanToggle');
 const scanLabel = document.getElementById('scanLabel');
 const readerDiv = document.getElementById('reader');
+const exportBtn = document.getElementById('exportBtn');
 
 document.getElementById('dateLine').textContent = new Date().toLocaleDateString('it-IT', {
   weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -450,6 +474,7 @@ function render(){
   if(inventory.length === 0){
     itemsWrap.appendChild(emptyMsg);
     totalsRow.style.display = 'none';
+    exportBtn.style.display = 'none';
     topCount.textContent = '0 articoli';
     return;
   }
@@ -494,6 +519,7 @@ function render(){
   });
 
   totalsRow.style.display = 'flex';
+  exportBtn.style.display = 'flex';
   totalQty.textContent = totalItems;
   topCount.textContent = `${inventory.length} prodott${inventory.length===1?'o':'i'} · ${totalItems} pz`;
 }
@@ -699,6 +725,60 @@ document.getElementById('manualSave').addEventListener('click', async () => {
   await addProduct('manual-' + Date.now(), name, brand, '');
   modalBack.classList.remove('open');
 });
+
+// --- Export / send the list ---------------------------------------------
+// The rich product data lives in the user's local Open Food Facts + Postgres
+// setup, keyed by barcode. So we only need to hand off barcode + qty (name and
+// brand are included for human readability). CSV is both easy to read in a
+// WhatsApp/email message and trivial for a script to parse.
+function csvField(v){
+  v = (v == null ? '' : String(v));
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+function buildExportText(){
+  const date = new Date().toISOString().slice(0, 10);
+  const lines = ['barcode,qty,name,brand'];
+  inventory.forEach(i => {
+    lines.push([csvField(i.barcode), i.qty, csvField(i.name), csvField(i.brand)].join(','));
+  });
+  return { date, text: `Spesa ${date}\n` + lines.join('\n') };
+}
+
+function downloadFile(filename, content){
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportList(){
+  if(inventory.length === 0){ setStatus('Lista vuota', true); return; }
+  const { date, text } = buildExportText();
+  // Native share sheet (WhatsApp, Gmail, ...) — best experience on mobile.
+  if(navigator.share){
+    try{
+      await navigator.share({ title: `Spesa ${date}`, text });
+      setStatus('Lista inviata', false);
+      return;
+    }catch(e){
+      if(e && e.name === 'AbortError') return; // user closed the sheet
+    }
+  }
+  // Fallback (desktop / no share sheet): copy to clipboard + download a file.
+  try{
+    await navigator.clipboard.writeText(text);
+    setStatus('Lista copiata negli appunti', false);
+  }catch(e){}
+  downloadFile(`spesa-${date}.csv`, text);
+}
+
+exportBtn.addEventListener('click', exportList);
 
 loadInventory();
 </script>

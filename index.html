@@ -508,22 +508,41 @@ async function addProduct(barcode, name, brand, image){
 // (Open Food Facts recommends this) and less likely to time out on mobile.
 const OFF_FIELDS = 'product_name,product_name_it,generic_name,brands,image_front_small_url,image_small_url';
 
+async function fetchJson(url, ms){
+  // Give up on a hung request so we can move on to the next proxy quickly.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || 12000);
+  try{
+    const res = await fetch(url, { signal: ctrl.signal });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function fetchProduct(code){
   const offUrl = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`;
+  const enc = encodeURIComponent(offUrl);
   // Open Food Facts' API server does not send CORS headers to browsers, so a
   // direct fetch from a static page (GitHub Pages) is blocked. Try direct
-  // first anyway — it's faster and keeps the request private when it works —
-  // then fall back to a public CORS proxy that re-adds the missing header.
+  // first (fastest, most private when it works), then fall through a list of
+  // public CORS proxies — any single one can be down, so we keep several.
   const endpoints = [
     offUrl,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(offUrl)}`
+    `https://corsproxy.io/?url=${enc}`,
+    `https://api.codetabs.com/v1/proxy/?quest=${enc}`,
+    `https://api.allorigins.win/raw?url=${enc}`
   ];
   let lastErr;
   for(const url of endpoints){
     try{
-      const res = await fetch(url);
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const data = await fetchJson(url, 12000);
+      // Make sure we got real OFF data, not a proxy error/HTML page.
+      if(data && (typeof data.status !== 'undefined' || data.product)){
+        return data;
+      }
+      throw new Error('Risposta non valida');
     }catch(e){
       lastErr = e;
     }

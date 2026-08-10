@@ -504,20 +504,40 @@ async function addProduct(barcode, name, brand, image){
   await saveInventory();
 }
 
+// Request only the fields we actually use — smaller, faster response
+// (Open Food Facts recommends this) and less likely to time out on mobile.
+const OFF_FIELDS = 'product_name,product_name_it,generic_name,brands,image_front_small_url,image_small_url';
+
+async function fetchProduct(code){
+  const offUrl = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`;
+  // Open Food Facts' API server does not send CORS headers to browsers, so a
+  // direct fetch from a static page (GitHub Pages) is blocked. Try direct
+  // first anyway — it's faster and keeps the request private when it works —
+  // then fall back to a public CORS proxy that re-adds the missing header.
+  const endpoints = [
+    offUrl,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(offUrl)}`
+  ];
+  let lastErr;
+  for(const url of endpoints){
+    try{
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }catch(e){
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
 async function lookupBarcode(code, attempt){
   attempt = attempt || 1;
   if(processingLookup) return;
   processingLookup = true;
   setStatus(`Cerco ${code}...`, false);
   try{
-    // Request only the fields we actually use — smaller, faster response
-    // (Open Food Facts recommends this) and less likely to time out on mobile.
-    const fields = 'product_name,product_name_it,generic_name,brands,image_front_small_url,image_small_url';
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${fields}`);
-    if(!res.ok){
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    const data = await fetchProduct(code);
     if(data.status === 1 && data.product){
       const p = data.product;
       const name = p.product_name || p.product_name_it || p.generic_name || `Prodotto ${code}`;

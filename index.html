@@ -352,7 +352,7 @@
     </div>
   </div>
 
-  <div class="foot-msg">DATI SALVATI SUL TUO ACCOUNT · PRODOTTI VIA OPENFOODFACTS</div>
+  <div class="foot-msg">DATI SALVATI SU QUESTO DISPOSITIVO · PRODOTTI VIA OPENFOODFACTS</div>
 </div>
 
 <div class="modal-back" id="modalBack">
@@ -388,19 +388,19 @@ document.getElementById('dateLine').textContent = new Date().toLocaleDateString(
   weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
 });
 
-async function loadInventory(){
+function loadInventory(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    inventory = res ? JSON.parse(res.value) : [];
+    const raw = localStorage.getItem(STORAGE_KEY);
+    inventory = raw ? JSON.parse(raw) : [];
   }catch(e){
     inventory = [];
   }
   render();
 }
 
-async function saveInventory(){
+function saveInventory(){
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(inventory), false);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(inventory));
   }catch(e){
     console.error('Storage error', e);
     setStatus('Errore nel salvataggio', true);

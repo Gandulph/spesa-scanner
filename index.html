@@ -504,28 +504,43 @@ async function addProduct(barcode, name, brand, image){
   await saveInventory();
 }
 
-async function lookupBarcode(code){
+async function lookupBarcode(code, attempt){
+  attempt = attempt || 1;
   if(processingLookup) return;
   processingLookup = true;
   setStatus(`Cerco ${code}...`, false);
   try{
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json`);
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json`, {
+      method: 'GET',
+      mode: 'cors',
+      headers: { 'Accept': 'application/json' }
+    });
+    if(!res.ok){
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     if(data.status === 1 && data.product){
       const p = data.product;
       const name = p.product_name || p.product_name_it || p.generic_name || `Prodotto ${code}`;
       const brand = p.brands || '';
       const image = p.image_front_small_url || p.image_small_url || '';
+      processingLookup = false;
       await addProduct(code, name, brand, image);
       setStatus(`✓ Aggiunto: ${name}`, false);
     } else {
+      processingLookup = false;
       setStatus(`Non trovato (${code}) — aggiungilo manualmente`, true);
     }
   }catch(err){
-    setStatus('Errore di rete nella ricerca prodotto', true);
+    processingLookup = false;
+    if(attempt < 2){
+      // transient network hiccup — retry once automatically
+      setTimeout(() => lookupBarcode(code, attempt + 1), 800);
+      return;
+    }
+    setStatus(`Errore: ${err.message || 'connessione fallita'} — riprova o aggiungi manualmente`, true);
   }
-  processingLookup = false;
-  setTimeout(() => setStatus(''), 3000);
+  setTimeout(() => setStatus(''), 4000);
 }
 
 function onScanSuccess(decodedText){

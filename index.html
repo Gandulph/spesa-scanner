@@ -510,11 +510,10 @@ async function lookupBarcode(code, attempt){
   processingLookup = true;
   setStatus(`Cerco ${code}...`, false);
   try{
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json`, {
-      method: 'GET',
-      mode: 'cors',
-      headers: { 'Accept': 'application/json' }
-    });
+    // Request only the fields we actually use — smaller, faster response
+    // (Open Food Facts recommends this) and less likely to time out on mobile.
+    const fields = 'product_name,product_name_it,generic_name,brands,image_front_small_url,image_small_url';
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${fields}`);
     if(!res.ok){
       throw new Error(`HTTP ${res.status}`);
     }
@@ -533,12 +532,19 @@ async function lookupBarcode(code, attempt){
     }
   }catch(err){
     processingLookup = false;
+    console.error('Lookup error', err);
     if(attempt < 2){
       // transient network hiccup — retry once automatically
       setTimeout(() => lookupBarcode(code, attempt + 1), 800);
       return;
     }
-    setStatus(`Errore: ${err.message || 'connessione fallita'} — riprova o aggiungi manualmente`, true);
+    // A TypeError ("Failed to fetch") means the request never reached the
+    // server (network / CORS / blocked) — distinct from an HTTP error status.
+    const isNetwork = (err instanceof TypeError);
+    const msg = isNetwork
+      ? 'Rete non raggiungibile (OpenFoodFacts bloccato?) — aggiungi manualmente'
+      : `Errore: ${err.message} — riprova o aggiungi manualmente`;
+    setStatus(msg, true);
   }
   setTimeout(() => setStatus(''), 4000);
 }

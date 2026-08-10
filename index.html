@@ -374,6 +374,39 @@ let html5Qr = null;
 let scanning = false;
 let processingLookup = false;
 
+// Debounce: the camera reports the same barcode ~10x/second while it stays in
+// view. Track the last accepted code and when we last saw it, and ignore an
+// identical code until it has left the frame for RESCAN_COOLDOWN ms — so one
+// physical scan = one item, but re-presenting the box still adds another unit.
+let lastCode = null;
+let lastCodeTime = 0;
+const RESCAN_COOLDOWN = 2500;
+
+// Short confirmation beep on acquisition. AudioContext must be created/resumed
+// from a user gesture (the "Scansiona" tap), or mobile browsers keep it muted.
+let audioCtx = null;
+function initAudio(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+  }catch(e){}
+}
+function beep(){
+  if(!audioCtx) return;
+  try{
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.16);
+  }catch(e){}
+}
+
 const itemsWrap = document.getElementById('itemsWrap');
 const emptyMsg = document.getElementById('emptyMsg');
 const topCount = document.getElementById('topCount');
@@ -589,9 +622,20 @@ async function lookupBarcode(code, attempt){
 }
 
 function onScanSuccess(decodedText){
+  const code = decodedText.trim();
+  const now = Date.now();
+  // Same box still in front of the camera: keep suppressing, and keep the
+  // cooldown window alive so it only counts again once it has left the frame.
+  if(code === lastCode && (now - lastCodeTime) < RESCAN_COOLDOWN){
+    lastCodeTime = now;
+    return;
+  }
   if(processingLookup) return;
+  lastCode = code;
+  lastCodeTime = now;
+  beep();
   if(navigator.vibrate) navigator.vibrate(80);
-  lookupBarcode(decodedText.trim());
+  lookupBarcode(code);
 }
 
 async function startScanning(){
@@ -633,6 +677,7 @@ async function stopScanning(){
 }
 
 scanToggle.addEventListener('click', () => {
+  initAudio(); // unlock/resume audio while we have a user gesture
   if(scanning){ stopScanning(); } else { startScanning(); }
 });
 
